@@ -599,6 +599,14 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
       }
+    },
+    {
+      "name": "@vscode/l10n",
+      "version": "0.0.18",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"]
+      }
     }
   ]
 }
