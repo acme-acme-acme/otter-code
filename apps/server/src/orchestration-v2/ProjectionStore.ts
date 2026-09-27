@@ -155,6 +155,12 @@ export type ProjectionThreadPullRequests = Pick<
   "id" | "projectId" | "settledOverride" | "settledAt" | "pullRequests"
 >;
 
+/** The thread fields Linear issue sync reads, for a thread with at least one link. */
+export type ProjectionThreadLinearIssues = Pick<
+  OrchestrationV2AppThread,
+  "id" | "projectId" | "linearIssues"
+>;
+
 /** Thread activity needed by settlement, without transcript or fork history. */
 export type ProjectionSettlementCandidate = Pick<
   OrchestrationV2ThreadShell,
@@ -348,6 +354,11 @@ export interface ProjectionStoreV2Shape {
    */
   readonly getThreadsWithPullRequests: () => Effect.Effect<
     ReadonlyArray<ProjectionThreadPullRequests>,
+    ProjectionStoreV2Error
+  >;
+  /** Like `getThreadsWithPullRequests`, for threads with a linked Linear issue. */
+  readonly getThreadsWithLinearIssues: () => Effect.Effect<
+    ReadonlyArray<ProjectionThreadLinearIssues>,
     ProjectionStoreV2Error
   >;
   readonly getTurnStartContext: (
@@ -5085,6 +5096,27 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         );
       }).pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
 
+    const getThreadsWithLinearIssues: ProjectionStoreV2Shape["getThreadsWithLinearIssues"] = () =>
+      Effect.gen(function* () {
+        const rows = yield* sql<PayloadRow>`
+          SELECT payload_json
+          FROM orchestration_v2_projection_threads
+          WHERE deleted_at IS NULL
+            AND json_extract(payload_json, '$.archivedAt') IS NULL
+            AND json_array_length(payload_json, '$.linearIssues') > 0
+          ORDER BY updated_at ASC, thread_id ASC
+        `;
+        return yield* Effect.forEach(rows, (row) =>
+          decodeThreadPayload(row.payload_json).pipe(
+            Effect.map((thread): ProjectionThreadLinearIssues => ({
+              id: thread.id,
+              projectId: thread.projectId,
+              linearIssues: thread.linearIssues ?? [],
+            })),
+          ),
+        );
+      }).pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
+
     const shellThreadStateFromRow = (input: {
       readonly row: ShellThreadRow;
       readonly runOrdinalsByThreadId: ReadonlyMap<ThreadId, Map<RunId, number>>;
@@ -5353,6 +5385,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThread,
       getSettlementCandidates,
       getThreadsWithPullRequests,
+      getThreadsWithLinearIssues,
       getThreadProjection,
       getTurnStartContext,
       getTurnStartHistory,
@@ -5504,6 +5537,29 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 settledOverride: thread.settledOverride,
                 settledAt: thread.settledAt,
                 pullRequests: thread.pullRequests ?? [],
+              })),
+          ),
+        ),
+      getThreadsWithLinearIssues: () =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()]
+              .map(({ thread }) => thread)
+              .filter(
+                (thread) =>
+                  thread.deletedAt === null &&
+                  thread.archivedAt === null &&
+                  (thread.linearIssues ?? []).length > 0,
+              )
+              .toSorted(
+                (left, right) =>
+                  DateTime.toEpochMillis(left.updatedAt) -
+                    DateTime.toEpochMillis(right.updatedAt) || left.id.localeCompare(right.id),
+              )
+              .map((thread): ProjectionThreadLinearIssues => ({
+                id: thread.id,
+                projectId: thread.projectId,
+                linearIssues: thread.linearIssues ?? [],
               })),
           ),
         ),
