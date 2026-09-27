@@ -1254,6 +1254,8 @@ export const ServerSettings = Schema.Struct({
    * settings UI is not undone by the next server start.
    */
   projectSettingsFolded: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Language servers for the file and diff editors, keyed by `CodeIntelligenceServerId`. */
+  codeIntelligence: CodeIntelligenceSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   /**
    * Whether agents may drive simulators and emulators. Gates the `device_*`
    * MCP tools and the preconfigured `agent-device` CLI the same way
@@ -1261,8 +1263,6 @@ export const ServerSettings = Schema.Struct({
    * when the provider session is prepared. The user's own Device panel is
    * unaffected.
    */
-  /** Language servers for the file and diff editors, keyed by `CodeIntelligenceServerId`. */
-  codeIntelligence: CodeIntelligenceSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
    * Whether this server may install and run T3's device helper processes.

@@ -3,7 +3,6 @@ import {
   type LinearIssueChange,
   type LinearIssueDetail,
   LinearIssueDetailError,
-  type OrchestrationV2ThreadShell,
   type ThreadLinearIssueLink,
   type ThreadLinearIssueSnapshot,
 } from "@t3tools/contracts";
@@ -20,6 +19,10 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import {
+  ProjectionStoreV2,
+  type ProjectionThreadLinearIssues,
+} from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
 import { makeLinearApi, type LinearIssue } from "./LinearApi.ts";
 import { makeLinearCredentials } from "./LinearCredentials.ts";
@@ -32,7 +35,7 @@ import { makeLinearCredentials } from "./LinearCredentials.ts";
 const SYNC_INTERVAL = "30 seconds";
 
 interface LinkEntry {
-  readonly thread: OrchestrationV2ThreadShell;
+  readonly thread: ProjectionThreadLinearIssues;
   readonly link: ThreadLinearIssueLink;
 }
 
@@ -84,9 +87,10 @@ function snapshotChanged(link: ThreadLinearIssueLink, issue: LinearIssue): boole
 
 /**
  * Keeps every thread ↔ Linear issue link's status current, the way
- * PullRequestSyncReactor does for pull requests. Each sweep reads
- * the shell snapshot, reads every due issue in batched GraphQL requests, and
- * writes back only what changed. Does nothing until a Linear API key is set.
+ * PullRequestSyncReactor does for pull requests. Each sweep reads only the
+ * active threads that have links, reads their issues in batched GraphQL
+ * requests, and writes back only what changed. Does nothing until a Linear
+ * API key is set.
  */
 export class LinearIssueSyncReactor extends Context.Service<
   LinearIssueSyncReactor,
@@ -111,6 +115,7 @@ export class LinearIssueSyncReactor extends Context.Service<
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const engine = yield* OrchestratorV2;
+  const projections = yield* ProjectionStoreV2;
   const api = yield* makeLinearApi;
   const crypto = yield* Crypto.Crypto;
   /** Every linked issue's UUID and identifier, so changes to other issues are ignored. */
@@ -123,16 +128,12 @@ export const make = Effect.gen(function* () {
     <E>(cause: Cause.Cause<E>): Effect.Effect<void, E> =>
       Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.logWarning(message, fields);
 
-  const sweep = Effect.fn("LinearIssueSyncReactor.sweep")(function* () {
-    const credential = yield* credentials.current;
-    if (credential === null) return;
-    const apiKey = credential.token;
-    const snapshot = yield* engine.getShellSnapshot();
-    const now = yield* DateTime.now;
-
+  // Untraced until there is something to sync, so idle polls write no spans
+  // and never ask the relay for a token.
+  const sweep = Effect.gen(function* () {
+    const threads = yield* projections.getThreadsWithLinearIssues();
     const groups = new Map<string, Array<LinkEntry>>();
-    for (const thread of snapshot.threads) {
-      if (thread.archivedAt !== null) continue;
+    for (const thread of threads) {
       for (const link of thread.linearIssues ?? []) {
         const key = linkKey(link);
         const entries = groups.get(key) ?? [];
@@ -146,8 +147,16 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-    if (groups.size === 0) return;
-    const issues = yield* api.readIssues(apiKey, [...groups.keys()]);
+    if (groups.size > 0) yield* syncGroups(groups);
+  });
+
+  const syncGroups = Effect.fn("LinearIssueSyncReactor.sweep")(function* (
+    groups: ReadonlyMap<string, ReadonlyArray<LinkEntry>>,
+  ) {
+    const credential = yield* credentials.current;
+    if (credential === null) return;
+    const issues = yield* api.readIssues(credential.token, [...groups.keys()]);
+    const now = yield* DateTime.now;
     for (const [key, entries] of groups) {
       const issue = issues.get(key);
       if (issue) yield* writeSnapshots(entries, issue, now);
@@ -186,7 +195,7 @@ export const make = Effect.gen(function* () {
   });
 
   const worker = yield* makeDrainableWorker(() =>
-    sweep().pipe(Effect.catchCause(logSkipped("linear issue sync sweep failed", {}))),
+    sweep.pipe(Effect.catchCause(logSkipped("linear issue sync sweep failed", {}))),
   );
 
   const requestSync = worker.enqueue(undefined);
@@ -222,13 +231,11 @@ export const make = Effect.gen(function* () {
   const recordDetail = Effect.fn("LinearIssueSyncReactor.recordDetail")(function* (
     detail: LinearIssueDetail,
   ) {
-    const snapshot = yield* engine.getShellSnapshot();
-    const entries = snapshot.threads.flatMap((thread) =>
-      thread.archivedAt === null
-        ? (thread.linearIssues ?? [])
-            .filter((link) => link.issueId === detail.id || link.identifier === detail.identifier)
-            .map((link) => ({ thread, link }))
-        : [],
+    const threads = yield* projections.getThreadsWithLinearIssues();
+    const entries = threads.flatMap((thread) =>
+      (thread.linearIssues ?? [])
+        .filter((link) => link.issueId === detail.id || link.identifier === detail.identifier)
+        .map((link) => ({ thread, link })),
     );
     yield* writeSnapshots(entries, issueOfDetail(detail), yield* DateTime.now);
   });
