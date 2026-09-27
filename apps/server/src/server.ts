@@ -528,7 +528,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
       const service = yield* LinearIssueSyncReactor.LinearIssueSyncReactor;
       yield* service.start();
     }),
-  ).pipe(Layer.provideMerge(LinearIssueSyncReactor.layer)),
+  ).pipe(Layer.provideMerge(LinearIssueSyncReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       const service = yield* LinearSessionMirror.LinearSessionMirror;
