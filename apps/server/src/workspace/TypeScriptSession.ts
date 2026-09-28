@@ -3,6 +3,7 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeModule from "node:module";
 import * as Schema from "effect/Schema";
+import { nodeScriptCommand } from "../nodeScript.ts";
 
 const Response = Schema.Struct({
   type: Schema.String,
@@ -35,16 +36,16 @@ export class TypeScriptSession {
     const tsserver = NodeModule.createRequire(import.meta.url).resolve(
       "typescript-tsserver/lib/tsserver.js",
     );
-    this.child = NodeChildProcess.spawn(
-      process.execPath,
-      [tsserver, "--disableAutomaticTypingAcquisition", "--noGetErrOnBackgroundUpdate"],
-      {
-        cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_OPTIONS: "", TSS_LOG: "" },
-      },
-    );
+    const launch = nodeScriptCommand(tsserver, [
+      "--disableAutomaticTypingAcquisition",
+      "--noGetErrOnBackgroundUpdate",
+    ]);
+    this.child = NodeChildProcess.spawn(launch.command, launch.args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_OPTIONS: "", TSS_LOG: "" },
+    });
     this.child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
     this.child.stderr.resume();
     this.child.on("error", (error) => this.dispose(error));
