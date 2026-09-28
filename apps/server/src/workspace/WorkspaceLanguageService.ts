@@ -20,6 +20,7 @@ import {
   languageServerLaunch,
   launchKey,
   LSP_SERVERS,
+  prepareLanguageServerLaunch,
   type LanguageServerLaunch,
 } from "./languageServers.ts";
 
@@ -34,6 +35,15 @@ interface Target {
 const launchFor = (kind: CodeIntelligenceServerId, settings: CodeIntelligenceSettings) =>
   kind === "typescript" || kind === "json" ? null : languageServerLaunch(kind, settings);
 const keyOf = (launch: LanguageServerLaunch | null) => (launch ? launchKey(launch) : null);
+/** Installs or locates a missing default server; the session keeps the unprepared launch as its key. */
+const prepare = async (
+  kind: CodeIntelligenceServerId,
+  launch: LanguageServerLaunch | null,
+  { root, file }: Pick<Target, "root" | "file">,
+) =>
+  launch && kind !== "typescript" && kind !== "json"
+    ? prepareLanguageServerLaunch(kind, launch, root, file)
+    : launch;
 
 function createBackend(
   { root, file, language }: Target,
@@ -100,14 +110,15 @@ export class WorkspaceLanguageService {
       const target = await this.resolve(input);
       const kind = codeIntelligenceServerForLanguage(target.language);
       assertEnabled(kind, settings);
+      const launch = launchFor(kind, settings);
+      const prepared = await prepare(kind, launch, target);
       // Recheck after filesystem awaits; simultaneous opens must not orphan a process.
       session = this.sessions.get(input.sessionId);
       if (!session) {
         if (this.sessions.size >= 4)
           throw new Error("Too many active code editors. Close an editor and retry.");
-        const launch = launchFor(kind, settings);
         session = {
-          server: createBackend(target, launch),
+          server: createBackend(target, prepared),
           kind,
           launch,
           cwd: input.cwd,
@@ -148,13 +159,10 @@ export class WorkspaceLanguageService {
       await this.synchronize(current, input);
       if (input.operation === "refresh" && codeLanguageForPath(current.file) === "protobuf") {
         // Buf caches imported files for the process lifetime. Reload only on workspace changes.
+        const root = await NodeFSP.realpath(current.cwd);
+        const launch = await prepare("protobuf", current.launch, { root, file: current.file });
         current.server.dispose();
-        current.server = new LspLanguageBackend(
-          await NodeFSP.realpath(current.cwd),
-          current.file,
-          "protobuf",
-          current.launch!,
-        );
+        current.server = new LspLanguageBackend(root, current.file, "protobuf", launch!);
         await current.server.update(current.contents, current.version);
       }
       return current.server.query(input);
@@ -204,8 +212,9 @@ export class WorkspaceLanguageService {
     ) {
       await session.server.retarget(target.file);
     } else {
+      const prepared = await prepare(kind, launch, target);
       session.server.dispose();
-      session.server = createBackend(target, launch);
+      session.server = createBackend(target, prepared);
     }
     session.launch = launch;
     session.kind = kind;
