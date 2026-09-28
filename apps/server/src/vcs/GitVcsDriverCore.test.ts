@@ -332,7 +332,7 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
 
     assert.deepStrictEqual(commands, [
       { args: ["rev-parse", "--git-path", "index"], lcAll: "C" },
-      { args: ["status", "--porcelain=2", "--branch"], lcAll: "C" },
+      { args: ["status", "--porcelain=2", "-z", "--branch"], lcAll: "C" },
       { args: ["rev-parse", "--abbrev-ref", "HEAD"], lcAll: "C" },
       { args: ["rev-parse", "--git-common-dir"], lcAll: "C" },
     ]);
@@ -354,6 +354,59 @@ it.effect("invalidates origin remote cache when a driver mutation adds origin", 
 
     const after = yield* driver.statusDetailsLocal(cwd);
     assert.equal(after.hasOriginRemote, true);
+  }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("lists each working tree change once, including renames", () =>
+  Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const cwd = yield* makeTmpDir();
+    yield* initRepoWithCommit(cwd);
+    yield* writeTextFile(cwd, "apps/desktop/src/moved.ts", "one\ntwo\n");
+    yield* writeTextFile(cwd, "apps/desktop/src/edited.ts", "one\ntwo\nthree\nfour\n");
+    yield* git(cwd, ["add", "."]);
+    yield* git(cwd, ["commit", "-m", "desktop files"]);
+    // Shared path segments make git abbreviate renames as `{apps/desktop => packages/core}/...`.
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* fileSystem.makeDirectory(`${cwd}/packages/core/src`, { recursive: true });
+    yield* git(cwd, ["mv", "apps/desktop/src/moved.ts", "packages/core/src/moved.ts"]);
+    yield* git(cwd, ["mv", "apps/desktop/src/edited.ts", "packages/core/src/edited.ts"]);
+    yield* writeTextFile(cwd, "packages/core/src/edited.ts", "one\ntwo\nthree\nFOUR\n");
+    yield* writeTextFile(cwd, "README.md", "# changed\n");
+    yield* writeTextFile(cwd, "staged.txt", "staged\n");
+    yield* git(cwd, ["add", "staged.txt"]);
+    yield* writeTextFile(cwd, "untracked file.txt", "new\n");
+
+    const status = yield* driver.statusDetailsLocal(cwd);
+
+    assert.deepStrictEqual(status.workingTree.files, [
+      { path: "packages/core/src/edited.ts", insertions: 1, deletions: 1 },
+      { path: "packages/core/src/moved.ts", insertions: 0, deletions: 0 },
+      { path: "README.md", insertions: 1, deletions: 1 },
+      { path: "staged.txt", insertions: 1, deletions: 0 },
+      { path: "untracked file.txt", insertions: 0, deletions: 0 },
+    ]);
+    assert.equal(status.workingTree.insertions, 3);
+    assert.equal(status.workingTree.deletions, 2);
+  }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("lists staged and unstaged changes before the first commit", () =>
+  Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const cwd = yield* makeTmpDir();
+    yield* driver.initRepo({ cwd });
+    yield* writeTextFile(cwd, "staged.txt", "one\n");
+    yield* git(cwd, ["add", "staged.txt"]);
+    yield* writeTextFile(cwd, "staged.txt", "one\ntwo\n");
+    yield* writeTextFile(cwd, "untracked.txt", "new\n");
+
+    const status = yield* driver.statusDetailsLocal(cwd);
+
+    assert.deepStrictEqual(status.workingTree.files, [
+      { path: "staged.txt", insertions: 2, deletions: 0 },
+      { path: "untracked.txt", insertions: 0, deletions: 0 },
+    ]);
   }).pipe(Effect.provide(TestLayer)),
 );
 
