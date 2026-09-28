@@ -9,6 +9,7 @@ import type {
   CodeIntelligenceSettings,
   LanguageServerStatus,
 } from "@t3tools/contracts";
+import { nodeScriptCommand } from "../nodeScript.ts";
 
 export type LspServerId = Exclude<CodeIntelligenceServerId, "typescript" | "json">;
 
@@ -32,7 +33,8 @@ export const LSP_SERVERS = {
     envVar: "T3CODE_RUST_ANALYZER_PATH",
     args: [],
     tabSize: 4,
-    installHint: "Install it with rustup component add rust-analyzer rust-src.",
+    installHint:
+      "With rustup, it installs automatically when you open a Rust file. Otherwise install rust-analyzer.",
   },
   protobuf: {
     name: "Buf",
@@ -42,7 +44,8 @@ export const LSP_SERVERS = {
     envVar: "T3CODE_BUF_PATH",
     args: ["lsp", "serve"],
     tabSize: 2,
-    installHint: "Install the Buf CLI from buf.build/docs/installation.",
+    installHint:
+      "Uses the workspace's @bufbuild/buf when installed. Otherwise install the Buf CLI from buf.build/docs/installation.",
   },
 } satisfies Record<LspServerId, unknown>;
 
@@ -88,8 +91,95 @@ export function languageServerLaunch(
   const command = settings[id]?.command?.trim() || process.env[server.envVar]?.trim();
   if (command) return { command, args: server.args, builtIn: false };
   const script = id === "python" ? bundledPyright() : null;
-  if (script) return { command: process.execPath, args: [script, ...server.args], builtIn: true };
+  if (script) return { ...nodeScriptCommand(script, server.args), builtIn: true };
   return { command: server.defaultCommand, args: server.args, builtIn: false };
+}
+
+/**
+ * Gets a missing default server ready for one workspace, the way the VS Code extensions do,
+ * so opening a file just works. rust-analyzer and the standard-library sources come from the
+ * workspace's rustup toolchain; Buf comes from the workspace's own node_modules.
+ */
+export async function prepareLanguageServerLaunch(
+  id: LspServerId,
+  launch: LanguageServerLaunch,
+  root: string,
+  file: string,
+): Promise<LanguageServerLaunch> {
+  if (launch.builtIn || launch.command !== LSP_SERVERS[id].defaultCommand) return launch;
+  if (id === "rust") await ensureRustComponents(root);
+  if (id === "protobuf" && !(await resolveCommand(launch.command))) {
+    const local = await workspaceBinary(root, file, launch.command);
+    if (local) return { ...launch, command: local };
+  }
+  return launch;
+}
+
+/** The nearest node_modules/.bin/<command> from the file's directory up to the workspace root. */
+async function workspaceBinary(root: string, file: string, command: string) {
+  for (let directory = NodePath.dirname(file); ; directory = NodePath.dirname(directory)) {
+    const found = await resolveCommand(NodePath.join(directory, "node_modules", ".bin", command));
+    if (found) return found;
+    if (directory === root || NodePath.dirname(directory) === directory) return null;
+  }
+}
+
+const isDirectory = (path: string) =>
+  NodeFSP.stat(path).then(
+    (stats) => stats.isDirectory(),
+    () => false,
+  );
+
+const rustInstalls = new Map<string, Promise<void>>();
+
+/** Adds rust-analyzer and rust-src to the toolchain rustup picks for this workspace. */
+function ensureRustComponents(root: string): Promise<void> {
+  const running = rustInstalls.get(root);
+  if (running) return running;
+  const install = (async () => {
+    if (!(await resolveCommand("rustup"))) return;
+    const missing: string[] = [];
+    if (!(await run("rustup", ["which", "rust-analyzer"], root, 10_000)).ok)
+      missing.push("rust-analyzer");
+    const sysroot = await run("rustc", ["--print", "sysroot"], root, 10_000);
+    const sources = sysroot.ok
+      ? NodePath.join(sysroot.output, "lib", "rustlib", "src", "rust", "library")
+      : null;
+    const hasSources = sources !== null && (await isDirectory(sources));
+    if (!hasSources) missing.push("rust-src");
+    if (missing.length === 0) return;
+    const added = await run("rustup", ["component", "add", ...missing], root, 10 * 60_000);
+    if (!added.ok)
+      throw new Error(
+        `Could not install ${missing.join(" and ")} with rustup: ${added.output} Run rustup component add ${missing.join(" ")} in the workspace, then Retry.`,
+      );
+  })();
+  rustInstalls.set(root, install);
+  // A success is remembered for the server's lifetime; a failure is retried on the next open.
+  install.catch(() => rustInstalls.delete(root));
+  return install;
+}
+
+/** Trimmed stdout when the command succeeds in time, otherwise the tail of its stderr. */
+function run(
+  command: string,
+  args: ReadonlyArray<string>,
+  cwd: string,
+  timeout: number,
+): Promise<{ ok: boolean; output: string }> {
+  return new Promise((resolve) => {
+    NodeChildProcess.execFile(
+      command,
+      [...args],
+      { cwd, timeout, windowsHide: true },
+      (error, stdout, stderr) =>
+        resolve(
+          error
+            ? { ok: false, output: (stderr.trim() || error.message).slice(-500) }
+            : { ok: true, output: stdout.trim() },
+        ),
+    );
+  });
 }
 
 /** Identifies a launch, so a session restarts when Settings change what would run. */
