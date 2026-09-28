@@ -9,6 +9,7 @@ import type {
   CodeIntelligenceSettings,
   LanguageServerStatus,
 } from "@t3tools/contracts";
+import { nodeScriptCommand } from "../nodeScript.ts";
 
 export type LspServerId = Exclude<CodeIntelligenceServerId, "typescript" | "json">;
 
@@ -88,7 +89,7 @@ export function languageServerLaunch(
   const command = settings[id]?.command?.trim() || process.env[server.envVar]?.trim();
   if (command) return { command, args: server.args, builtIn: false };
   const script = id === "python" ? bundledPyright() : null;
-  if (script) return { command: process.execPath, args: [script, ...server.args], builtIn: true };
+  if (script) return { ...nodeScriptCommand(script, server.args), builtIn: true };
   return { command: server.defaultCommand, args: server.args, builtIn: false };
 }
 
