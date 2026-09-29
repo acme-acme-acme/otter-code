@@ -33,9 +33,12 @@ import {
   hoverMarkdown,
 } from "./lspSchemas.ts";
 
+// Build scripts and proc macros stay on, as in VS Code: without them derives such as
+// serde's resolve to nothing and report false errors. The editor never sends didSave,
+// so cargo check on save would never run.
 const rustSettings = {
-  cargo: { buildScripts: { enable: false } },
-  procMacro: { enable: false },
+  cargo: { buildScripts: { enable: true } },
+  procMacro: { enable: true },
   checkOnSave: false,
   completion: { autoimport: { enable: false } },
 };
