@@ -283,9 +283,10 @@ Shift+F12 to find references. In the editor you also get completions (Ctrl+Space
 signature help, and formatting (Shift+Alt+F), and the back and forward buttons return you
 through the places you jumped to.
 
-TypeScript, JavaScript, JSON, and Python work without installing anything. Rust and
-Protobuf use rust-analyzer and the Buf CLI when they are installed on the environment's
-machine. In **Settings → Code Intelligence** you can see which language servers each
+TypeScript, JavaScript, JSON, and Python work without installing anything. For Rust, the
+first Rust file you open installs rust-analyzer and the standard-library sources with the
+project's rustup toolchain; without rustup, install rust-analyzer yourself. Protobuf uses
+the Buf CLI, from the project's own `@bufbuild/buf` package or the environment's machine. In **Settings → Code Intelligence** you can see which language servers each
 environment found, turn a language off, or point one at a specific command.
 
 Diffs show intelligence for the current version of each file. Lines that no longer match
