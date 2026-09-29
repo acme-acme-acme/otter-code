@@ -48,6 +48,12 @@ function ScopeOption(props: {
   );
 }
 
+function fileCountDetail(count: number | null, emptyLabel: string): string | null {
+  if (count === null) return null;
+  if (count === 0) return emptyLabel;
+  return `${count} ${count === 1 ? "file" : "files"} changed`;
+}
+
 function SectionLabel(props: { readonly children: ReactNode }) {
   return (
     <div className="px-2.5 pt-2 pb-1 text-2xs font-medium text-muted-foreground">
@@ -66,6 +72,8 @@ export function DiffScopeMenu(props: {
   readonly label: string;
   /** Full scope name, e.g. a commit subject, for the trigger's tooltip. */
   readonly title: string;
+  /** Known only while the "All changes" scope is loaded; null hides the count. */
+  readonly allFileCount: number | null;
   readonly uncommittedFileCount: number | null;
   readonly commits: ReadonlyArray<ReviewCommit>;
   readonly commitsTruncated: boolean;
@@ -73,20 +81,20 @@ export function DiffScopeMenu(props: {
   /** Shown at the top while it applies; turns are read from checkpoints, not a branch. */
   readonly targetBranchPicker: ReactNode;
   readonly onSelect: (choice: DiffScopeChoice) => void;
+  /** Called when the menu opens, so the counts it shows can be refreshed. */
+  readonly onOpen: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    if (next && !open) props.onOpen();
+    setOpenState(next);
+  };
   const { timestampFormat } = useClientSettings();
   const { selected } = props;
   const select = (choice: DiffScopeChoice) => {
     props.onSelect(choice);
     setOpen(false);
   };
-  const uncommittedDetail =
-    props.uncommittedFileCount === null
-      ? null
-      : props.uncommittedFileCount === 0
-        ? "No uncommitted changes"
-        : `${props.uncommittedFileCount} ${props.uncommittedFileCount === 1 ? "file" : "files"} changed`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -130,12 +138,13 @@ export function DiffScopeMenu(props: {
               selected={selected.kind === "branch"}
               onSelect={() => select({ kind: "branch" })}
               title="All changes"
+              detail={fileCountDetail(props.allFileCount, "No changes")}
             />
             <ScopeOption
               selected={selected.kind === "unstaged"}
               onSelect={() => select({ kind: "unstaged" })}
               title="Uncommitted changes"
-              detail={uncommittedDetail}
+              detail={fileCountDetail(props.uncommittedFileCount, "No uncommitted changes")}
             />
             {props.commits.length > 0 ? (
               <>
