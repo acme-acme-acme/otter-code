@@ -353,8 +353,23 @@ export default function DiffPanel({
         })
       : null,
   );
+  const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, {
+    reportFailure: false,
+  });
   const refreshPreviewQuery = branchDiffPreview.refresh;
-  const refreshDiffFromUserAction = refreshPreviewQuery;
+  const refreshBranchCommits = branchCommits.refresh;
+  const statusEnvironmentId = activeThread?.environmentId ?? null;
+  // Git status is cached server-side and only refreshed on focus or at turn end, so the scope
+  // menu's counts go stale when files change outside a turn. Refresh them when they are looked at.
+  const refreshScopeCounts = useCallback(() => {
+    if (statusEnvironmentId === null || !activeCwd) return;
+    void refreshVcsStatus({ environmentId: statusEnvironmentId, input: { cwd: activeCwd } });
+    refreshBranchCommits();
+  }, [activeCwd, refreshBranchCommits, refreshVcsStatus, statusEnvironmentId]);
+  const refreshDiffFromUserAction = useCallback(() => {
+    refreshPreviewQuery();
+    refreshScopeCounts();
+  }, [refreshPreviewQuery, refreshScopeCounts]);
 
   const currentLoadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
     const preview = branchDiffPreview.data;
@@ -844,11 +859,17 @@ export default function DiffPanel({
               selected={selectedScopeChoice}
               label={scopeMenuLabel}
               title={scopeMenuTitle}
+              allFileCount={
+                selectedScopeChoice.kind === "branch" && selectedGitSource?.kind === "all"
+                  ? (selectedGitSource.files?.length ?? null)
+                  : null
+              }
               uncommittedFileCount={gitStatusQuery.data?.workingTree.files.length ?? null}
               commits={branchCommits.data?.commits ?? []}
               commitsTruncated={branchCommits.data?.truncated ?? false}
               turns={scopeMenuTurns}
               onSelect={selectScope}
+              onOpen={refreshScopeCounts}
               targetBranchPicker={
                 previewCwd && !selectedTurn ? (
                   <DiffTargetBranchPicker
