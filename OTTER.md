@@ -68,7 +68,7 @@ different and how to keep the fork aligned with upstream.
 | URL scheme           | `ottercode` (`ottercode-dev`, `ottercode-preview`)                                      |
 | Data home            | `~/.otter-code` (never `~/.t3`, so it can sit beside an installed T3 Code)              |
 | Background service   | `otter-code.service` (systemd user unit), `dev.otterware.code.service` (launchd)        |
-| Releases and updates | GitHub Releases of `acme-acme-acme/otter-code`, nightly channel                         |
+| Releases and updates | GitHub Releases of `otterware-app/otter-code`, nightly channel                          |
 | Relay                | `https://relay.otterware.dev` (Cloudflare Worker, deployed from `infra/relay`)          |
 | Tunnels              | `prod-<digest>.otterware.dev`, one per linked machine                                   |
 | Hosted web app       | `https://code.otterware.dev` (Vercel project `otter-code-web`)                          |
@@ -131,7 +131,7 @@ source. Run it with `--dry-run` first.
   anything fails:
 
   ```sh
-  curl -fsSL https://raw.githubusercontent.com/acme-acme-acme/otter-code/main/scripts/install.sh \
+  curl -fsSL https://raw.githubusercontent.com/otterware-app/otter-code/main/scripts/install.sh \
     | T3CODE_HOME=~/.otter-code T3CODE_CHANNEL=nightly sh
   scripts/otter/migrate-from-t3.sh --from ~/.t3/orchestrator-preview-2829 \
     --stop-unit t3code-pr2829.service --wait-idle 10 --install-service
