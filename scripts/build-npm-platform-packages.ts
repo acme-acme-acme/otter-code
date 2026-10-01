@@ -164,7 +164,7 @@ export function npmPlatformPackageReadme(platformKey: CliArchivePlatformKey): st
     `npx ${NPM_LAUNCHER_PACKAGE_NAME}@latest`,
     "```",
     "",
-    "Source and documentation: https://github.com/acme-acme-acme/otter-code",
+    "Source and documentation: https://github.com/otterware-app/otter-code",
     "",
   ].join("\n");
 }
@@ -211,7 +211,7 @@ try {
       "${NPM_LAUNCHER_PACKAGE_NAME}: no Otter Code CLI build is available for this platform (" + key + ").",
       "Supported platforms: " + SUPPORTED.join(", ") + ".",
       "If yours is listed, reinstall ${NPM_LAUNCHER_PACKAGE_NAME} so npm fetches its optional dependency.",
-      "The desktop app and release archives are at https://github.com/acme-acme-acme/otter-code/releases",
+      "The desktop app and release archives are at https://github.com/otterware-app/otter-code/releases",
       "",
     ].join("\\n"),
   );
