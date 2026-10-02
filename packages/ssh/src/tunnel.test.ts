@@ -105,7 +105,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(script, "T3_NODE_SCRIPT_PATH=''");
     assert.include(
       script,
-      "T3_RELEASE_BASE_URL='https://github.com/acme-acme-acme/otter-code/releases/download'",
+      "T3_RELEASE_BASE_URL='https://github.com/otterware-app/otter-code/releases/download'",
     );
     assert.include(
       script,
